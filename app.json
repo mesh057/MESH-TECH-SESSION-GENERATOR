@@ -1,0 +1,14 @@
+{
+  "name": "MESH-TECH-SESSION",
+  "description": "WhatsApp Session ID Generator for MESH-TECH-V2",
+  "repository": "https://github.com/mesh057/MESH-TECH-SESSION",
+  "logo": "https://i.postimg.cc/vHZz7VWG/bot-logo.png",
+  "keywords": ["whatsapp", "session", "generator", "mesh-tech"],
+  "website": "https://github.com/mesh057/MESH-TECH-SESSION",
+  "success_url": "/",
+  "stack": "container",
+  "env": {},
+  "buildpacks": [
+    { "url": "heroku/nodejs" }
+  ]
+}

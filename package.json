@@ -1,0 +1,25 @@
+{
+  "name": "mesh-tech-session",
+  "version": "2.0.0",
+  "description": "MESH-TECH-V2 WhatsApp Session ID Generator",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "Mesh",
+  "license": "MIT",
+  "engines": {
+    "npm": ">=9.7.2",
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "qrcode": "^1.5.4",
+    "awesome-phonenumber": "^2.64.0",
+    "pino": "^9.6.0",
+    "phone": "^3.1.30",
+    "body-parser": "^1.20.3",
+    "express": "^4.21.2",
+    "path": "^0.12.7"
+  }
+}
