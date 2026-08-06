@@ -38,5 +38,5 @@ jobs:
       run: |
         node index.js &
         sleep 5
-        curl -I http://localhost:3000
+        curl -I http://localhost:8000
         
