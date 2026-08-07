@@ -1,116 +1,170 @@
 const express = require('express');
 const fs = require('fs');
+const path = require('path');
 const { makeid } = require('./id');
-const pino = require("pino");
-
+const pino = require('pino');
 const {
-  default: Mesh_Tech,
+  default: makeWASocket,
   useMultiFileAuthState,
   delay,
   makeCacheableSignalKeyStore,
-  Browsers
-} = require("@whiskeysockets/baileys");
+} = require('@whiskeysockets/baileys');
 
-let router = express.Router();
+const router = express.Router();
+const TEMP_ROOT = path.join(__dirname, 'temp');
+const MAX_RECONNECTS = 2;
 
-function removeFile(FilePath) {
-  if (!fs.existsSync(FilePath)) return false;
-  fs.rmSync(FilePath, { recursive: true, force: true });
+function removeFile(filePath) {
+  fs.rmSync(filePath, { recursive: true, force: true });
+}
+
+function normalizeNumber(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function isValidNumber(number) {
+  return /^\d{10,15}$/.test(number);
+}
+
+function getStatusCode(error) {
+  return error?.output?.statusCode || error?.statusCode || 500;
 }
 
 router.get('/', async (req, res) => {
+  const number = normalizeNumber(req.query.number);
+
+  if (!isValidNumber(number)) {
+    return res.status(400).json({
+      error: 'Invalid phone number. Use 10–15 digits including the country code.',
+    });
+  }
+
   const id = makeid();
-  let num = req.query.number;
+  const authPath = path.join(TEMP_ROOT, id);
+  let socket;
+  let codeRequested = false;
+  let reconnects = 0;
+  let cleaned = false;
 
-  async function MESH_TECH_PAIR() {
-    const { state, saveCreds } = await useMultiFileAuthState('./temp/' + id);
+  const cleanup = () => {
+    if (!cleaned) {
+      cleaned = true;
+      removeFile(authPath);
+    }
+  };
 
+  const sendError = (status, message) => {
+    if (!res.headersSent) {
+      res.status(status).json({ error: message });
+    }
+  };
+
+  const connect = async () => {
     try {
-      let Mesh_Pair = Mesh_Tech({
+      const { state, saveCreds } = await useMultiFileAuthState(authPath);
+      const logger = pino({ level: 'silent' });
+
+      socket = makeWASocket({
         auth: {
           creds: state.creds,
-          keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
+          keys: makeCacheableSignalKeyStore(
+            state.keys,
+            logger.child({ level: 'silent' }),
+          ),
         },
-        printQRInTerminal: false,
-        logger: pino({ level: "fatal" }).child({ level: "fatal" }),
-        browser: ["Chrome (Linux)", "", ""]
+        logger,
+        browser: ['MESH-TECH-V2', 'Chrome', '1.0.0'],
+        markOnlineOnConnect: false,
+        syncFullHistory: false,
       });
 
-      if (!Mesh_Pair.authState.creds.registered) {
-        await delay(1500);
-        num = num.replace(/[^0-9]/g, '');
-        const code = await Mesh_Pair.requestPairingCode(num);
-        if (!res.headersSent) {
-          await res.send({ code });
-        }
-      }
+      socket.ev.on('creds.update', saveCreds);
+      socket.ev.on('connection.update', async ({ connection, lastDisconnect, qr }) => {
+        try {
+          // Baileys requires the socket to be ready. The qr event is the
+          // readiness trigger; requesting immediately after socket creation
+          // can fail with 428/401 and produce no pairing code.
+          if (qr && !state.creds.registered && !codeRequested) {
+            codeRequested = true;
+            const code = await socket.requestPairingCode(number);
+            if (!res.headersSent) {
+              res.json({ code });
+            }
+          }
 
-      Mesh_Pair.ev.on('creds.update', saveCreds);
+          if (connection === 'open') {
+            await delay(2500);
+            const credsPath = path.join(authPath, 'creds.json');
+            if (!fs.existsSync(credsPath)) {
+              throw new Error('WhatsApp connected but credentials were not saved');
+            }
 
-      Mesh_Pair.ev.on("connection.update", async (s) => {
-        const { connection, lastDisconnect } = s;
+            const sessionId = `Mesh~${fs.readFileSync(credsPath).toString('base64')}`;
+            const sessionMessage = await socket.sendMessage(socket.user.id, {
+              text: sessionId,
+            });
 
-        if (connection == "open") {
-          await delay(5000);
-          let data = fs.readFileSync(__dirname + `/temp/${id}/creds.json`);
-          await delay(800);
-          let b64data = Buffer.from(data).toString('base64');
-          let sessionId = 'Mesh~' + b64data;
-
-          let session = await Mesh_Pair.sendMessage(Mesh_Pair.user.id, {
-            text: sessionId
-          });
-
-          let MESH_TEXT = `
+            await socket.sendMessage(
+              socket.user.id,
+              {
+                text: `
 ╔════════════════════════════════════════════╗
 ║  ✅ *MESH-TECH-V2 PAIR CODE CONNECTED*      ║
 ╚════════════════════════════════════════════╝
-
 🤖 *Bot Name:* MESH-TECH-V2
-👤 *Owner:* Mesh
-📱 *Number:* ${Mesh_Pair.user.id.split(':')[0]}
+📱 *Number:* ${socket.user.id.split(':')[0]}
 🔐 *Session ID:* Sent above (starts with Mesh~)
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📋 *NEXT STEPS:*
-1️⃣ Copy the Session ID above (the long text starting with Mesh~)
+1️⃣ Copy the Session ID above
 2️⃣ Paste it in your bot's .env file as SESSION_ID
 3️⃣ Deploy your bot and enjoy!
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔗 *Links:*
-📢 Channel: https://whatsapp.com/channel/0029VbDeTrNEKyZ9GlUude2R
-💬 Group: https://chat.whatsapp.com/DM1JxxnOJFp0vsTHpej89M
-📦 Repo: https://github.com/mesh057/MESH-TECH-V2
+🔗 Repo: https://github.com/mesh057/MESH-TECH-V2
+                `.trim(),
+              },
+              { quoted: sessionMessage },
+            );
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-_⭐ Don't forget to star the repo!_
-          `.trim();
+            await delay(100);
+            socket.end?.(undefined);
+            cleanup();
+          }
 
-          await Mesh_Pair.sendMessage(Mesh_Pair.user.id, {
-            text: MESH_TEXT
-          }, { quoted: session });
+          if (connection === 'close') {
+            const statusCode = getStatusCode(lastDisconnect?.error);
+            if (statusCode === 401 || statusCode === 403) {
+              cleanup();
+              if (!res.headersSent) {
+                sendError(502, 'WhatsApp rejected the pairing request. Please try again.');
+              }
+              return;
+            }
 
-          await delay(100);
-          await Mesh_Pair.ws.close();
-          return await removeFile('./temp/' + id);
-
-        } else if (connection === "close" && lastDisconnect && lastDisconnect.error && lastDisconnect.error.output.statusCode != 401) {
-          await delay(10000);
-          MESH_TECH_PAIR();
+            if (!res.headersSent && reconnects < MAX_RECONNECTS) {
+              reconnects += 1;
+              codeRequested = false;
+              await delay(1500);
+              await connect();
+            } else if (!res.headersSent) {
+              cleanup();
+              sendError(502, 'WhatsApp disconnected before a pairing code was generated.');
+            }
+          }
+        } catch (error) {
+          console.error('[PAIRING] Connection update failed:', error.message);
+          cleanup();
+          sendError(getStatusCode(error) >= 400 ? getStatusCode(error) : 502, 'Unable to generate a pairing code. Please try again.');
         }
       });
-
-    } catch (err) {
-      console.log("service restarted");
-      await removeFile('./temp/' + id);
-      if (!res.headersSent) {
-        await res.send({ code: "Service Unavailable" });
-      }
+    } catch (error) {
+      console.error('[PAIRING] Socket creation failed:', error.message);
+      cleanup();
+      sendError(502, 'Pairing service is temporarily unavailable. Please try again.');
     }
-  }
+  };
 
-  return await MESH_TECH_PAIR();
+  await connect();
 });
 
 module.exports = router;
