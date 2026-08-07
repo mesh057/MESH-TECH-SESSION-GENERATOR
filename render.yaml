@@ -3,7 +3,7 @@ services:
     name: mesh-tech-session
     runtime: node
     plan: free
-    repo: https://github.com/mesh057/MESH-TECH-SESSION
+    repo: https://github.com/mesh057/MESH-TECH-SESSION-GENERATOR
     branch: main
     buildCommand: npm install
     startCommand: npm start

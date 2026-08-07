@@ -8,6 +8,7 @@ const {
   useMultiFileAuthState,
   delay,
   makeCacheableSignalKeyStore,
+  fetchLatestBaileysVersion,
 } = require('@whiskeysockets/baileys');
 
 const router = express.Router();
@@ -63,6 +64,7 @@ router.get('/', async (req, res) => {
     try {
       const { state, saveCreds } = await useMultiFileAuthState(authPath);
       const logger = pino({ level: 'silent' });
+      const { version } = await fetchLatestBaileysVersion();
 
       socket = makeWASocket({
         auth: {
@@ -73,9 +75,12 @@ router.get('/', async (req, res) => {
           ),
         },
         logger,
+        version,
         browser: ['MESH-TECH-V2', 'Chrome', '1.0.0'],
         markOnlineOnConnect: false,
         syncFullHistory: false,
+        connectTimeoutMs: 60_000,
+        keepAliveIntervalMs: 25_000,
       });
 
       socket.ev.on('creds.update', saveCreds);
